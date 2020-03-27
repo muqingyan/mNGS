@@ -1,0 +1,20 @@
+CREATE TABLE `result_accn_final` (
+  `staxid` int(11) NOT NULL,
+  `taxid` int(11) NOT NULL,
+  `bclass` varchar(64) CHARACTER SET utf8 DEFAULT NULL,
+  `sclass` varchar(64) CHARACTER SET utf8 DEFAULT NULL,
+  `genbank_assembly_accession` varchar(32) CHARACTER SET utf8 DEFAULT NULL,
+  `refseq_assembly_accession` varchar(32) CHARACTER SET utf8 DEFAULT NULL,
+  `assm_level` int(11) DEFAULT '1',
+  `location` varchar(1000) CHARACTER SET utf8 DEFAULT NULL,
+  `assembly_level` varchar(32) CHARACTER SET utf8 NOT NULL,
+  `refseq_category` varchar(64) CHARACTER SET utf8 DEFAULT NULL,
+  `genome_rep` varchar(32) CHARACTER SET utf8 DEFAULT NULL,
+  `refseq_accn` varchar(32) CHARACTER SET utf8 DEFAULT NULL,
+  `genbank_accn` varchar(32) CHARACTER SET utf8 DEFAULT NULL,
+  `sequence_role` varchar(32) CHARACTER SET utf8 DEFAULT NULL,
+  `sequence_length` int(11) DEFAULT NULL,
+  `gc_count` int(11) DEFAULT NULL,
+  `sequence_des` varchar(5000) CHARACTER SET utf8 DEFAULT NULL,
+  `accn_hq_index_select` varchar(32) NOT NULL DEFAULT '0'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8

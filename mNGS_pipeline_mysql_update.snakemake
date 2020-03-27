@@ -1,0 +1,274 @@
+import configparser
+import os
+
+config = configparser.ConfigParser()
+config.read('./conf_mysql.ini')
+SCRIPTS = config.get('scripts','scripts')
+VERSION = config.get('version','version')
+HOST = config.get("newmysql","host")
+USER = config.get("newmysql","user")
+PASSWD = config.get("newmysql","passwd")
+DB = config.get("newmysql","sql_db")
+THRESHOLD = config.get("params","threshold")
+
+rule all:
+	input:
+		expand("mysql/update_sql_table03_{version}.sql.complete",version=VERSION)
+
+rule staxid_update:
+	input:
+		old_staxid_list = config.get("input","staxid_list"),
+		cname = config.get("other_file","chinese_name"),
+		new_genbank = config.get("ncbi_summary_file","assembly_summary_genbank"),
+		taxonomy_dir = config.get("ncbi_summary_file","taxonomy_dir")
+	output:
+		speciestaxid_list = "tables/speciestaxid_{version}.txt"
+	log:
+		errlog = "logs/staxid_update.{version}.err.log"
+	params:
+		script = os.path.join(SCRIPTS,"table","01species_taxid_update.py"),
+		old_table = config.get("oldmysql","old_assm_select"),
+		oldhost = config.get("oldmysql","host"),
+		olduser = config.get("oldmysql","user"),
+		oldpasswd = config.get("oldmysql","passwd"),
+		oldsql_db = config.get("oldmysql","sql_db")
+	shell:
+		"python {params.script} -i {input.old_staxid_list} -c {input.cname} -g {input.new_genbank} -d {input.taxonomy_dir} -o {output.speciestaxid_list} -v {wildcards.version} --db {params.oldsql_db} -t {params.old_table} -u {params.olduser} -p {params.oldpasswd} --host_ip {params.oldhost} 2> {log}"
+
+rule assm_select_part1:
+	input:
+		new_staxid = "tables/speciestaxid_{version}.txt",
+		new_genbank = config.get("ncbi_summary_file","assembly_summary_genbank"),
+		origin_fasta_dir = config.get("other_file","fasta_dir")
+	output:
+		assm_select = "tables/assm_select_{version}.txt",
+		taxid_select = "tables/taxid_select_{version}.txt",
+	log:
+		errlog = "logs/assm_select_part1_{version}.err.log"
+	params:
+		script = os.path.join(SCRIPTS,"table","02assm_select.py")
+	shell:
+		"python {params.script} -i {input.new_staxid} -g {input.new_genbank} -d {input.origin_fasta_dir} -o {output.assm_select} --taxid_select_output {output.taxid_select} 2> {log}"
+
+rule assm_select_part2:
+	input:
+		new_staxid = "tables/speciestaxid_{version}.txt",
+		taxid_select = "tables/taxid_select_{version}.txt",
+		new_genbank = config.get("ncbi_summary_file","assembly_summary_genbank"),
+		origin_fasta_dir = config.get("other_file","fasta_dir")
+	output:
+		accession_number_output = "tables/accession_number_{version}.txt",
+		accn_select_output = "tables/accn_select_{version}.txt"
+	log:
+		errlog = "logs/assm_select_part2_{version}.err.log"
+	params:
+		script = os.path.join(SCRIPTS,"table","02assm_select.py")
+	shell:
+		"python {params.script} -i {input.new_staxid} -g {input.new_genbank} -d {input.origin_fasta_dir} --accession_number_output {output.accession_number_output} --accn_select_output {output.accn_select_output} 2>{log}"
+
+rule generate_sqlScript:
+	input:
+		"tables/speciestaxid_{version}.txt"
+	output:
+		"mysql/generate_sqlScript_{version}.sql"
+	params:
+		script = os.path.join(SCRIPTS,"mysql","01create_sql_table.py")
+	log:
+		"logs/generate_sqlScript_{version}.err.log"
+	shell:
+		"python {params.script} {wildcards.version} {output} {USER} {PASSWD} {DB} {HOST}>{log} 2>&1"
+
+rule accn_GC_len:
+	input:
+		"tables/assm_select_{version}.txt"
+	output:
+		"tables/accn_GC_{version}.txt"
+	params:
+		script = os.path.join(SCRIPTS,"table","03accn_GC.deal.py")
+	log:
+		"logs/accn_GC_len_{version}.err.log"
+	shell:
+		"python {params.script} -i {input} -o {output} 2>{log}"
+
+rule lineage:
+	input:
+		dep = "mysql/generate_sqlScript_{version}.sql",
+		taxonomy_dir = config.get("ncbi_summary_file","taxonomy_dir")
+	output:
+		"tables/lineage_{version}.txt"
+	params:
+		script = os.path.join(SCRIPTS,"table","04lineage.py")
+	log:
+		"logs/lineage_{version}.err.log"
+	shell:
+		"python {params.script} -d {input.taxonomy_dir} -o {output} 2>{log}"
+
+rule ln_opera:
+	input:
+		assembly_summary = config.get("ncbi_summary_file","assembly_summary_genbank"),
+		tax_citations = os.path.join(config.get("ncbi_summary_file","taxonomy_dir"),"citations.dmp"),
+		tax_division = os.path.join(config.get("ncbi_summary_file","taxonomy_dir"),"division.dmp"),
+		tax_gencode = os.path.join(config.get("ncbi_summary_file","taxonomy_dir"),"gencode.dmp"),
+		tax_nodes = os.path.join(config.get("ncbi_summary_file","taxonomy_dir"),"nodes.dmp"),
+		tax_merged = os.path.join(config.get("ncbi_summary_file","taxonomy_dir"),"merged.dmp"),
+		tax_names = os.path.join(config.get("ncbi_summary_file","taxonomy_dir"),"names.dmp")
+	output:
+		assembly_summary = "tables/assembly_summary_{version}.txt",
+		tax_citations = "tables/tax_citations_{version}.txt",
+		tax_division = "tables/tax_division_{version}.txt",
+		tax_gencode = "tables/tax_gencode_{version}.txt",
+		tax_nodes = "tables/tax_nodes_{version}.txt",
+		tax_merged = "tables/tax_merged_{version}.txt",
+		tax_names = "tables/tax_names_{version}.txt"
+	log:
+		"logs/ln_opera_{version}.err.log"
+	shell:
+		"ln -s {input.assembly_summary} {output.assembly_summary} && ln -s {input.tax_citations} {output.tax_citations} && ln -s {input.tax_division} {output.tax_division} && ln -s {input.tax_gencode} {output.tax_gencode} && ln -s  {input.tax_nodes} {output.tax_nodes} && ln -s {input.tax_merged} {output.tax_merged} && ln -s {input.tax_names} {output.tax_names} >{log} 2>&1"
+
+rule load_data:
+	input:
+		assembly_summary = "tables/assembly_summary_{version}.txt",
+		accession_number = "tables/accession_number_{version}.txt",
+		speciestaxid = "tables/speciestaxid_{version}.txt",
+		taxid_select = "tables/taxid_select_{version}.txt",
+		assm_select = "tables/assm_select_{version}.txt",
+		accn_select = "tables/accn_select_{version}.txt",
+		lineage = "tables/lineage_{version}.txt",
+		accn_GC = "tables/accn_GC_{version}.txt",
+		tax_citations = "tables/tax_citations_{version}.txt",
+		tax_division = "tables/tax_division_{version}.txt",
+		tax_gencode = "tables/tax_gencode_{version}.txt",
+		tax_nodes = "tables/tax_nodes_{version}.txt",
+		tax_merged = "tables/tax_merged_{version}.txt",
+		tax_names = "tables/tax_names_{version}.txt"
+	output:
+		sql = "mysql/load_data_{version}.sql",
+		complete = "mysql/load_data_{version}.sql.complete"
+	params:
+		script = os.path.join(SCRIPTS,"mysql","load_data.py"),
+		tables_dir = "tables"
+	log:
+		"logs/load_data_{version}.err.log"
+	shell:
+		"python {params.script} {wildcards.version} {params.tables_dir} {output.sql} {USER} {PASSWD} {DB} {HOST}>{log} 2>&1 && touch {output.complete}"
+
+rule update_sql_table:
+	input:
+		"mysql/load_data_{version}.sql.complete"
+	output:
+		sql = "mysql/update_sql_table_{version}.sql",
+		res_statis = "tables/result_accn_statis_{version}.contain",
+		complete = "mysql/update_sql_table_{version}.sql.complete"
+	params:
+		script = os.path.join(SCRIPTS,"mysql","update_sql_table.py")
+	log:
+		"logs/update_sql_table_{version}.err.log"
+	shell:
+		"python {params.script} {wildcards.version} {output.sql} {output.res_statis} {USER} {PASSWD} {DB} {HOST} >{log} 2>&1 && touch {output.complete}"
+
+rule HQ_bowtie_select:
+	input:
+		"tables/result_accn_statis_{version}.contain"
+	output:
+		bowtie_fa = "tables/bowtie_seq_{version}.txt",
+		hq_seq = "tables/hq_seq_{version}.txt",
+	params:
+		script = os.path.join(SCRIPTS,"table","05result_accn_statis_seqslect_bowtieindex.deal.py"),
+		threshold = float(THRESHOLD)
+	log:
+		"logs/HQ_bowtie_select_{version}.err.log"
+	shell:
+		"python {params.script} -i {input} -t {params.threshold} --bowtie_index {output.bowtie_fa} --HQ_seq {output.hq_seq} 2>{log}"
+
+rule load_data02:
+	input:
+		bowtie_fa = "tables/bowtie_seq_{version}.txt",
+		hq_seq = "tables/hq_seq_{version}.txt"
+	output:
+		sql = "mysql/load_data02_{version}.sql",
+		complete = "mysql/load_data02_{version}.sql.complete"	
+	params:
+		script = os.path.join(SCRIPTS,"mysql","02load_data.py"),
+		tables_dir = "tables"
+	log:
+		"logs/load_data02_{version}.err.log"
+	shell:
+		"python {params.script} {wildcards.version} {params.tables_dir} {output.sql} {USER} {PASSWD} {DB} {HOST}>{log} 2>&1  && touch {output.complete}"
+
+rule update_sql_table02:
+	input:
+		"mysql/load_data02_{version}.sql.complete"
+	output:
+		sql = "mysql/update_sql_table02_{version}.sql",
+		result_accn_final = "tables/result_accn_final_{version}.contain",
+		complete = "mysql/update_sql_table02_{version}.sql.complete"
+	params:
+		script = os.path.join(SCRIPTS,"mysql","02update_sql_table.py")
+	log:
+		"logs/update_sql_table02_{version}.err.log"
+	shell:
+		"python {params.script} {wildcards.version} {output.sql} {output.result_accn_final} {USER} {PASSWD} {DB} {HOST}>{log} 2>&1 && touch {output.complete}"
+
+rule samtools_bowtie2_microindex:
+	input:
+		"tables/result_accn_final_{version}.contain"
+	output:
+		rep_micro_locations = "tables/samtools_locations_raw_{version}.txt",
+		kraken_fa = os.path.join(os.path.abspath(config.get("output","DB_dir")),"genome","FBVPA","kraken_{version}.raw.fa")
+	params:
+		script = os.path.join(SCRIPTS,"table","06samtools_bowtie2_microindex.py"),
+		rep_micro_outdir = os.path.join(config.get("output","DB_dir"),"genome","rep_microbe"),
+		kraken_fa_dir = os.path.join(config.get("output","DB_dir"),"genome","FBVPA")
+	log:
+		"logs/samtools_bowtie2_microindex_{version}.err.log"
+	shell:
+		"mkdir -p {params.rep_micro_outdir} {params.kraken_fa_dir} && python {params.script} -i {input}  -o {params.rep_micro_outdir} --output_locations {output.rep_micro_locations} --output_kraken {output.kraken_fa} 2>{log}"
+
+#get sh, you should use the shell script to build index
+rule build_rep_micro_sh:
+	input:
+		"tables/samtools_locations_raw_{version}.txt"
+	output:
+		build_sh = "buildshell/rep_micro_{version}.build.sh",
+		bowtie2_index_loaction = "tables/bowtie2_samtools_location_{version}.txt",
+		samtools_index_location = "tables/samtools_location_{version}.txt"
+	params:
+		script = os.path.join(SCRIPTS,"table","07samtools_bowtie2_microindex.sh"),
+		rep_micro_samtools = os.path.join(os.path.abspath(config.get("output","DB_dir")),"index","samtools_micro"),
+		rep_micro_bowtie2 =  os.path.join(os.path.abspath(config.get("output","DB_dir")),"index","bowtie2_micro"),
+		samtools = config.get("params","samtools"),
+		bowtie2 = config.get("params","bowtie2")
+		#unfinish
+
+	log:
+		"logs/build_rep_micro_sh_{version}.err.log"
+	shell:
+		"mkdir -p {params.rep_micro_samtools} {params.rep_micro_bowtie2} && sh {params.script} {input} {params.rep_micro_bowtie2} {params.rep_micro_samtools} {output.bowtie2_index_loaction} {output.samtools_index_location} {output.build_sh} {params.samtools} {params.bowtie2} >{log} 2>&1"
+
+rule load_data03:
+	input:
+		bowtie2_index_loaction = "tables/bowtie2_samtools_location_{version}.txt",
+		samtools_index_location = "tables/samtools_location_{version}.txt"
+	output:
+		sql = "mysql/load_data03_{version}.sql",
+		complete = "mysql/load_data03_{version}.sql.complete"
+	params:
+		script = os.path.join(SCRIPTS,"mysql","03load_data.py"),
+		tables_dir = "tables"
+	log:
+		"logs/load_data03_{version}.err.log"
+	shell:
+		"python {params.script} {wildcards.version} {params.tables_dir} {output.sql} {USER} {PASSWD} {DB} {HOST}>{log} 2>&1  && touch {output.complete}"
+
+rule update_sql_table03:
+	input:
+		"mysql/load_data03_{version}.sql.complete"
+	output:
+		sql = "mysql/update_sql_table03_{version}.sql",
+		complete = "mysql/update_sql_table03_{version}.sql.complete"
+	params:
+		script = os.path.join(SCRIPTS,"mysql","03update_sql_table.py"),
+	log:
+		"logs/update_sql_table03_{version}.err.log"
+	shell:
+		"python {params.script}  {wildcards.version} {output.sql} {USER} {PASSWD} {DB} {HOST}>{log} 2>&1  && touch {output.complete}"
