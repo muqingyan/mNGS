@@ -1,7 +1,7 @@
 # mNGS_mysql
 
 ### Introduction
-A suite of scripts tp update the mNGS database in the MySql DB.
+A suite of scripts to update the mNGS database in the MySql DB.
 The pipeline is managed by SnakeMake
 ### Steps
 #### Step 1：prepare staxid_list 
