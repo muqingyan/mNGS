@@ -2,7 +2,7 @@
 
 ### Introduction
 A suite of scripts to update the mNGS database in the MySql DB.
-The pipeline is managed by SnakeMake
+The pipeline is managed by the SnakeMake
 ### Steps
 #### Step 1：prepare staxid_list 
 This list should include all the desired species taxid
